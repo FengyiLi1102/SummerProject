@@ -3,6 +3,46 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 
+def reduce_memory(df, verbose=True):
+    """
+    :param: df - dataframe required to decrease the memory usage
+    :param: verbose - show logging output if 'Ture'
+
+    Goal: Reduce the memory usage by decreasing the type of the value if applicable
+
+    Return: original dataframe with lower memory usage
+    """
+
+    numerics = ['int64', 'int16', 'int32', 'float64', 'float32', 'float16']
+    start_memory = df.memory_usage().sum() / 1024**2
+
+    for col in df.columns:
+        col_type = df[col].dtypes
+        if col_type in numerics:
+            c_min = df[col].min()
+            c_max = df[col].max()
+            if str(col_type)[:3] == 'int':
+                if c_min > np.iinfo(np.int8).min and c_max < np.iinfo(np.int8).max:
+                    df[col] = df[col].astype(np.int8)
+                elif c_min > np.iinfo(np.int16).min and c_max < np.iinfo(np.int16).max:
+                    df[col] = df[col].astype(np.int16)
+                elif c_min > np.iinfo(np.int32).min and c_max < np.iinfo(np.int32).max:
+                    df[col] = df[col].astype(np.int32)
+                elif c_min > np.iinfo(np.int64).min and c_max < np.iinfo(np.int64).max:
+                    df[col] = df[col].astype(np.int64)
+            else:
+                if c_min > np.iinfo(np.float16).min and c_max < np.iinfo(np.float16).max:
+                    df[col] = df[col].astype(np.float16)
+                elif c_min > np.iinfo(np.float32).min and c_max < np.iinfo(np.float32).max:
+                    df[col] = df[col].astype(np.float32)
+                else:
+                    df[col] = df[col].astype(np.float64)
+
+    end_memory = df.memory_usage().sum() / 1024**2
+    if verbose: print('Mem. usage decreased to {:5.2f} Mb ({:.1f}% reduction)'.format(end_mem, 100 * (start_mem - end_mem) / start_mem))
+    
+    return df
+
 
 def struc_merge(df, struc, index):
    """
@@ -28,6 +68,37 @@ def struc_merge(df, struc, index):
                                         'z': f'z_{index}'})
 
     return df_struc
+
+
+def struc1_train_merge(df1, df2, index):
+    """
+    :param: df1 - training data
+    :param: df2 - structure data after being added electronegativity, radius, bond_lengths, hybridization, surrounding atoms (bonds),
+            position info. (x, y, z)
+    :param: index - atom_index in the coupling
+
+    Goal: Merge original training dataframe with processed structure data to form a new dataframe for further training process
+
+    Return: Merged dataframe
+    """
+
+    struc1_train_merge = pd.merge(df1, df2, how='left',
+                                  left_on=['molecule_name', f'atom_index_{index}'],
+                                  right_on=['molecule_name', 'atom_index'])
+    
+    struc1_train_merge = struc1_train_merge.drop(['n_bonds', 'atom_index'])
+    
+    struc1_train_merge = struc1_train_merge.rename(columns={'atom': f'atom_{index}',
+                                                            'EN': f'EN_{index}',
+                                                            'rad': f'RD_{index}',
+                                                            'bond_lengths': f'bond_lengths_{index}',
+                                                            'hybri': f'hybri_{index}',
+                                                            'bonds': f'bonds_{index}',
+                                                            'x': f'x_{index}',
+                                                            'y': f'y_{index}',
+                                                            'z': f'z_{index}'})
+    
+    return struc1_train_merge
 
 
 def n_bonds(structures):
@@ -130,12 +201,6 @@ def hybridization(structures):
     """
     :param: structures - structures data
 
-    Pre-check:
-    The situation that two atoms connecting to a C with one triple and one single bond is checked and there are no such situations 
-    in the data set, which is more straight for us to count the number of pi bonds for each molecule.This means that the number of 
-    pi bonds in each molecule will be directly related with the type of hybridization. For more restrict consideration, here the 
-    pre-check is done.
-
     Goal: Calculate each hybridization in the structures data
 
     Return: structure data with hybridization column added
@@ -143,18 +208,19 @@ def hybridization(structures):
     
     # 'C' has different types of hybridizations with different number of bonds.
     # '4' for four bonds
-    hybri = {'C': {'4': 3, '3': 2, '2': 1, '1': 0},
-              'N': {'4': 0, '3': 3, '2': 2, '1': 1},
-              'O': {'2': 2, '1': 1},
-              'H': {'1': 0},
-              'F': {'1': 0}}
+    hybri_dict = {'C': {'4': 3, '3': 2, '2': 2, '1': 0},
+                  'N': {'4': 0, '3': 3, '2': 2, '1': 1},
+                  'O': {'2': 2, '1': 1},
+                  'H': {'1': 0},
+                  'F': {'1': 0}}
+                # 3 bonds- sp3, 2 - sp2, 1 - sp
     
-    hybri_ = []
+    hybri = []
 
     for i in tqdm(range(len(structures))):
-            hybri_.append(hybri[structures.loc[i, 'atom']][str(structures.loc[i, 'n_bonds'])])
+        hybri.append(hybri_dict[structures.loc[i, 'atom']][str(structures.loc[i, 'n_bonds'])])
     
-    structures['hybri'] = hybri_
+    structures['hybri'] = hybri
 
     return structures
 
@@ -220,6 +286,101 @@ def radius(atom_name, structures):
     structures['RD'] = rd_
 
     return structures
+
+
+def map_atom_info(df_1,df_2, atom_idx):
+    """
+    :param: df_1 - train data
+    :param: df_2 - structure data
+    :param: atom_ind - atom index in coupling
+
+    Goal: Merge two dataframe for further using
+
+    Return: A new dataframe after merged
+    """
+
+    df = pd.merge(df_1, df_2, how = 'left',
+                  left_on  = ['molecule_name', f'atom_index_{atom_idx}'],
+                  right_on = ['molecule_name',  'atom_index'])
+    df = df.drop('atom_index', axis=1)
+
+    return df
+
+
+def create_closest(df_train):
+    df_temp=df_train.loc[:,["molecule_name","atom_index_0","atom_index_1","distance","x_0","y_0","z_0","x_1","y_1","z_1"]].copy()
+    df_temp_=df_temp.copy()
+    df_temp_= df_temp_.rename(columns={'atom_index_0': 'atom_index_1',
+                                       'atom_index_1': 'atom_index_0',
+                                       'x_0': 'x_1',
+                                       'y_0': 'y_1',
+                                       'z_0': 'z_1',
+                                       'x_1': 'x_0',
+                                       'y_1': 'y_0',
+                                       'z_1': 'z_0'})
+
+    df_temp=pd.concat(objs=[df_temp,df_temp_],axis=0)
+
+    df_temp["min_distance"]=df_temp.groupby(['molecule_name', 'atom_index_0'])['distance'].transform('min')
+    df_temp= df_temp[df_temp["min_distance"]==df_temp["distance"]]
+
+    df_temp=df_temp.drop(['x_0','y_0','z_0','min_distance'], axis=1)
+    df_temp= df_temp.rename(columns={'atom_index_0': 'atom_index',
+                                     'atom_index_1': 'atom_index_closest',
+                                     'distance': 'distance_closest',
+                                     'x_1': 'x_closest',
+                                     'y_1': 'y_closest',
+                                     'z_1': 'z_closest'})
+
+    for atom_idx in [0,1]:
+        df_train = map_atom_info(df_train,df_temp, atom_idx)
+        df_train = df_train.rename(columns={'atom_index_closest': f'atom_index_closest_{atom_idx}',
+                                            'distance_closest': f'distance_closest_{atom_idx}',
+                                            'x_closest': f'x_closest_{atom_idx}',
+                                            'y_closest': f'y_closest_{atom_idx}',
+                                            'z_closest': f'z_closest_{atom_idx}'})
+    return df_train
+
+
+def add_cos_features(df):
+    """
+    :param: df - dataframe containing necessary data for calculating the cosine value
+
+    Goal: Calculating cosine value
+
+    Return: dataframe with cosine data added
+    """
+
+    # The modulus of the 
+    df["distance_0"]=((df['x_0']-df['x_closest_0'])**2+(df['y_0']-df['y_closest_0'])**2+(df['z_0']-df['z_closest_0'])**2)**(1/2)
+    df["distance_1"]=((df['x_1']-df['x_closest_1'])**2+(df['y_1']-df['y_closest_1'])**2+(df['z_1']-df['z_closest_1'])**2)**(1/2)
+    
+    # Unit vector along each direction
+    df["vec_0_x"]=(df['x_0']-df['x_closest_0'])/df["distance_0"]
+    df["vec_0_y"]=(df['y_0']-df['y_closest_0'])/df["distance_0"]
+    df["vec_0_z"]=(df['z_0']-df['z_closest_0'])/df["distance_0"]
+    df["vec_1_x"]=(df['x_1']-df['x_closest_1'])/df["distance_1"]
+    df["vec_1_y"]=(df['y_1']-df['y_closest_1'])/df["distance_1"]
+    df["vec_1_z"]=(df['z_1']-df['z_closest_1'])/df["distance_1"]
+    
+    # Ratio between the difference along each direction to the distance
+    df["vec_x"]=(df['x_1']-df['x_0'])/df["distance"]
+    df["vec_y"]=(df['y_1']-df['y_0'])/df["distance"]
+    df["vec_z"]=(df['z_1']-df['z_0'])/df["distance"]
+
+    # Cosine of each component
+    df["cos_0_1"]=df["vec_0_x"]*df["vec_1_x"]+df["vec_0_y"]*df["vec_1_y"]+df["vec_0_z"]*df["vec_1_z"]
+    df["cos_0"]=df["vec_0_x"]*df["vec_x"]+df["vec_0_y"]*df["vec_y"]+df["vec_0_z"]*df["vec_z"]
+    df["cos_1"]=df["vec_1_x"]*df["vec_x"]+df["vec_1_y"]*df["vec_y"]+df["vec_1_z"]*df["vec_z"]
+
+    df=df.drop(['vec_0_x','vec_0_y','vec_0_z','vec_1_x','vec_1_y','vec_1_z','vec_x','vec_y','vec_z'], axis=1)
+
+    # Angle for each component
+    df["cos_0_1"] = df["cos_0_1"].apply(lambda x: np.arccos(x)) * 180 / np.pi
+    df["cos_0"] = df["cos_0"].apply(lambda x: np.arccos(x)) * 180 / np.pi
+    df["cos_1"] = df["cos_1"].apply(lambda x: np.arccos(x)) * 180 / np.pi
+
+    return df
 
 
 # File paths
