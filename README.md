@@ -8,7 +8,15 @@ Contents:
 
 - [Numpy_notes](https://github.com/FengyiLi1102/SummerProject/blob/master/numpy_notes.ipynb): The note is made by contents met during the competition.
 
-- [mainfile](https://github.com/FengyiLi1102/SummerProject/blob/master/mainfile.ipynb):
+- [main](https://github.com/FengyiLi1102/SummerProject/blob/master/main_10F.ipynb):
+  It includes ten features:
+  - electronegativity (both atoms)
+  - radius (both atoms)
+  - bond angles
+  - pi bonds (both atoms)
+  - hybridization (both atoms)
+  - distance
+  
   This is the main file of the competition. It consists of several steps: 
   - Loading of data
   - Data pre-processing
