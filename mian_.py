@@ -452,5 +452,5 @@ X = struc_train[['molecule_name',
                            'RD_1',
                            'hybri_1',
                            'pi_bonds_1',
-                           'cos_0_1']]
+                           'Angle']]
 
