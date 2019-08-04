@@ -212,6 +212,8 @@ def hybridization(structures):
     Return: structure data with hybridization column added
     """
     
+    print('Calculate hybridization......')
+    
     # 'C' has different types of hybridizations with different number of bonds.
     # '4' for four bonds
     hybri_dict = {'C': {'4': 3, '3': 2, '2': 2, '1': 0},
@@ -239,6 +241,8 @@ def pi_bonds(structures):
 
     Return: structures with pi_bonds column added
     """
+
+    print('Calculate pi bonds......')
 
     # The number of atoms connecting to an atom is related with the number of pi bonds.
     # Eg: In 'C', if there are 4 bonds around, then the number of pi bonds is 0.
@@ -317,6 +321,9 @@ def map_atom_info(df_1,df_2, atom_idx):
 
 
 def create_closest(df_train):
+
+    print('Create closest points......')
+
     df_temp=df_train.loc[:,["molecule_name","atom_index_0","atom_index_1","distance","x_0","y_0","z_0","x_1","y_1","z_1"]].copy()
     df_temp_=df_temp.copy()
     df_temp_= df_temp_.rename(columns={'atom_index_0': 'atom_index_1',
@@ -360,6 +367,8 @@ def add_cos_features(df):
     Return: dataframe with cosine data added
     """
 
+    print('Add cosine features......')
+
     # The modulus of the 
     df["distance_0"]=((df['x_0']-df['x_closest_0'])**2+(df['y_0']-df['y_closest_0'])**2+(df['z_0']-df['z_closest_0'])**2)**(1/2)
     df["distance_1"]=((df['x_1']-df['x_closest_1'])**2+(df['y_1']-df['y_closest_1'])**2+(df['z_1']-df['z_closest_1'])**2)**(1/2)
@@ -392,15 +401,52 @@ def add_cos_features(df):
     return df
 
 
+def more_features(df, df_):
+    
+    df['distance_mean'] = df.groupby('molecule_name')['distance'].transform('mean')
+    df['distance_std'] = df.groupby('molecule_name')['distance'].transform('std')
+    df['distance_min'] = df.groupby('molecule_name')['distance'].transform('min')
+    df['distance_max'] = df.groupby('molecule_name')['distance'].transform('max')
+
+    df['pi_bonds_mean'] = df_.groupby('molecule_name')['pi_bonds'].transform('mean')
+    df['pi_bonds_std'] = df_.groupby('molecule_name')['pi_bonds'].transform('std')
+    df['pi_bonds_min'] = df_.groupby('molecule_name')['pi_bonds'].transform('min')
+    df['pi_bonds_max'] = df_.groupby('molecule_name')['pi_bonds'].transform('max')
+
+    df['hybri_mean'] = df_.groupby('molecule_name')['hybri'].transform('mean')
+    df['hybri_std'] = df_.groupby('molecule_name')['hybri'].transform('std')
+    df['hybri_min'] = df_.groupby('molecule_name')['hybri'].transform('min')
+    df['hybri_max'] = df_.groupby('molecule_name')['hybri'].transform('max')
+
+    df['EN_mean'] = df['EN_0'] + df['EN_1'] / 2
+    df['RD_mean'] = df['RD_0'] + df['RD_1'] / 2
+
+    print('Add mean, std, min and max of bond lengths for atom 0......')
+
+    df['bond_length_0_mean'] = [np.mean(struc_train.loc[i, 'bond_lengths_0']) for i in tqdm(range(len(struc_train.index)))]
+    df['bond_length_0_std'] = [np.std(struc_train.loc[i, 'bond_lengths_0']) for i in tqdm(range(len(struc_train.index)))]
+    df['bond_length_0_min'] = [np.min(struc_train.loc[i, 'bond_lengths_0']) for i in tqdm(range(len(struc_train.index)))]
+    df['bond_length_0_max'] = [np.max(struc_train.loc[i, 'bond_lengths_0']) for i in tqdm(range(len(struc_train.index)))]
+
+    print('Add mean,std, min and max of bond lengths for atom 1......')
+
+    df['bond_length_1_mean'] = [np.mean(struc_train.loc[i, 'bond_lengths_1']) for i in tqdm(range(len(struc_train.index)))]
+    df['bond_length_1_std'] = [np.std(struc_train.loc[i, 'bond_lengths_1']) for i in tqdm(range(len(struc_train.index)))]
+    df['bond_length_1_min'] = [np.min(struc_train.loc[i, 'bond_lengths_1']) for i in tqdm(range(len(struc_train.index)))]
+    df['bond_length_1_max'] = [np.max(struc_train.loc[i, 'bond_lengths_1']) for i in tqdm(range(len(struc_train.index)))]
+
+    return df
+
+
 # File paths
 train_path = r'\\icnas4.cc.ic.ac.uk\fl4718\Desktop\Machine learning\Data\train.csv'
 structures_path = r'\\icnas4.cc.ic.ac.uk\fl4718\Desktop\Machine learning\Data\structures.csv'
 test_path = r'\\icnas4.cc.ic.ac.uk\fl4718\Desktop\Machine learning\Data\test.csv'
 
 # read data from local address
-train_df_full = pd.read_csv(train_path, index_col=0)
+train_df_full = pd.read_csv(train_path, index_col=0, dtype={'atom_index_0': np.int8, 'atom_index_1': np.int8})
 structures_df_full = pd.read_csv(structures_path, dtype={'atom_index': np.int8})
-test_df_full = pd.read_csv(test_path)
+test_df_full = pd.read_csv(test_path, index_col=0, dtype={'atom_index_0': np.int8, 'atom_index_1': np.int8})
 
 # Add distance feature to the test and trin data
 train_df = distance(train_df_full, structures_df_full)
@@ -440,17 +486,47 @@ type_list = list(struc_train['type'].unique())
 y = struc_train['scalar_coupling_constant']
 struc_train = struc_train.drop(['scalar_coupling_constant'], axis=1)
 
+# Add more features
+struc_train = more_features(struc_train, structures)
+
+# Columns of features
+good_columns = ['molecule_name',
+                'type',
+                'distance',
+                'EN_0',
+                'RD_0',
+                'hybri_0',
+                'pi_bonds_0',
+                'EN_1',
+                'RD_1',
+                'hybri_1',
+                'pi_bonds_1',
+                'Angle',
+                'distance_mean',
+                'distance_std',
+                'distance_min',
+                'distance_max',
+                'hybri_mean',
+                'hybri_std',
+                'hybri_min',
+                'hybri_max',
+                'pi_bonds_mean',
+                'pi_bonds_std',
+                'pi_bonds_min',
+                'pi_bonds_max',
+                'EN_mean',
+                'RD_mean',
+                'bond_length_1_mean',
+                'bond_length_1_std',
+                'bond_length_1_min',
+                'bond_length_1_max',
+                'bond_length_0_mean',
+                'bond_length_0_std',
+                'bond_length_0_min',
+                'bond_length_0_max']
+
 # Select features for training
-X = struc_train[['molecule_name',
-                           'type',
-                           'distance',
-                           'EN_0',
-                           'RD_0',
-                           'hybri_0',
-                           'pi_bonds_0',
-                           'EN_1',
-                           'RD_1',
-                           'hybri_1',
-                           'pi_bonds_1',
-                           'Angle']]
+X = struc_train[good_columns]
+
+
 
