@@ -1,3 +1,4 @@
+# Required libraries
 import xgboost as xgb
 import lightgbm as lgb
 from catboost import CatBoostRegressor
@@ -13,6 +14,9 @@ from sklearn.model_selection import StratifiedKFold, KFold, RepeatedKFold
 from sklearn import metrics
 from sklearn import linear_model
 import seaborn as sns
+import numpy as np
+import pandas as pd
+import time
 
 
 def group_mean_log_mae(y_true, y_pred, types, floor=1e-9):
@@ -144,10 +148,82 @@ def train_model_regression(X, X_test, y, params, folds, model_type='lgb', eval_m
 
             best_features = feature_importance.loc[feature_importance.feature.isin(cols)]
 
-            plt.figure(figsize=(16, 12));
-            sns.barplot(x="importance", y="feature", data=best_features.sort_values(by="importance", ascending=False));
-            plt.title('LGB Features (avg over folds)');
+            plt.figure(figsize=(16, 12))
+            sns.barplot(x="importance", y="feature", data=best_features.sort_values(by="importance", ascending=False))
+            plt.title('LGB Features (avg over folds)')
             
             result_dict['feature_importance'] = feature_importance
         
     return result_dict
+
+
+# Import prepared data
+train = pd.read_csv(r'G:\Numecent\train_d1.csv')
+test = pd.read_csv(r'G:\test_d1.csv')
+
+# Set parameters for model training
+fold_n = 3
+folds = KFold(n_splits=fold_n, shuffle=False, random_state=0)
+
+params_grid = { 'num_leaves': [50, 60, 70],
+                'min_child_samples': [79, 89, 99],
+                'min_data_in_leaf' : [100, 200, 300],
+                'objective': ['regression'],
+                'max_depth': [9, 15, 20],
+                'learning_rate': [0.05, 0.1, 0.2],
+                "boosting_type": ["gbdt"],
+                "subsample_freq": [1],
+                "subsample": [0.9],
+                "bagging_seed": [11],
+                "metric": ['mae'],
+                "verbosity": [-1],
+                'reg_alpha': [0.1],
+                'reg_lambda': [0.3],
+                'colsample_bytree': [1.0]
+                }
+
+params_lgb = {'num_leaves': 50,
+          'min_child_samples': 79,
+          'min_data_in_leaf' : 100,
+          'objective': 'regression',
+          'max_depth': 9,
+          'learning_rate': 0.2,
+          "boosting_type": "gbdt",
+          "subsample_freq": 1,
+          "subsample": 0.9,
+          "bagging_seed": 11,
+          "metric": 'mae',
+          "verbosity": -1,
+          'reg_alpha': 0.1,
+          'reg_lambda': 0.3,
+          'colsample_bytree': 1.0
+         }
+
+params_xgb = {'booster': 'gbtree',
+              'verbosity': 1,
+              'eta': 0.3,
+              'gamma': 3,
+              'max_depth': 12,
+              'min_child_weight': 1,
+              'subsample': 0.5,
+              'lambda': 1,
+              'alpha': 0
+              }
+
+# Train the model by each type
+types = test.type.unique()
+
+results_all = dict()
+
+for i in types:
+    train_plus = train[train['type'] == i]
+    y = train_plus['scalar_coupling_constant']
+    train_plus = train_plus.drop(['type', 'molecule_name', 'scalar_coupling_constant'], axis=1)
+
+    if i[0] == '1':
+        train_plus = train_plus.drop(['Angle'], axis=1)
+        results = train_model_regression(train_plus, test, y, params_xgb, folds, 'xgb')
+        results_all[i] = results
+    else:
+        results = train_model_regression(train_plus, test, y, params_xgb, folds, 'xgb')
+        results_all[i] = results
