@@ -8,7 +8,7 @@ Contents:
 
 - [Numpy_notes](https://github.com/FengyiLi1102/SummerProject/blob/master/numpy_notes.ipynb): The note is made by contents met during the competition.
 
-- [main](https://github.com/FengyiLi1102/SummerProject/blob/master/main_10F.ipynb):
+- [main](https://github.com/FengyiLi1102/SummerProject/blob/master/main.py):
   It includes ten features:
   - electronegativity (both atoms)
   - radius (both atoms)
