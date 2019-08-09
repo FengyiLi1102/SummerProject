@@ -1,4 +1,5 @@
-# SummerProject---Predicating Molecular Property (scalar coupling constant)
+# SummerProject
+## Predicating Molecular Property (scalar coupling constant)
 
 Contents:
 ---------
