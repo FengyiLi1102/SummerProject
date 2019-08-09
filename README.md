@@ -10,12 +10,13 @@ Contents:
 
 - [main](https://github.com/FengyiLi1102/SummerProject/blob/master/main.py):
   It includes ten features:
-  - electronegativity (both atoms)
-  - radius (both atoms)
+  - electronegativity (both atoms) [mean, std, min, max]
+  - radius (both atoms) [mean, std, min, max]
   - bond angles
-  - pi bonds (both atoms)
-  - hybridization (both atoms)
-  - distance
+  - pi bonds (both atoms) [mean, std, min, max]
+  - hybridization (both atoms) [mean, std, min, max]
+  - distance [mean, std]
+  - position (both atoms) [x, y, z]
   
   This is the main file of the competition. It consists of several steps: 
   - Loading of data
