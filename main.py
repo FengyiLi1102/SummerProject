@@ -1,4 +1,3 @@
-#%%
 # libraries required
 import xgboost as xgb
 import lightgbm as lgb
@@ -62,7 +61,7 @@ def reduce_memory(df, verbose=True):
     return df
 
 
-def struc1_merge(df1, df2, index):
+def struc_merge_plus(df1, df2, index):
     """
     :param: df1 - training data
     :param: df2 - structure data after being added electronegativity, radius, bond_lengths, hybridization, surrounding atoms (bonds),
@@ -75,8 +74,9 @@ def struc1_merge(df1, df2, index):
     """
 
     struc1_train_merge = pd.merge(df1, df2, how='left',
-                                  left_on=['molecule_name', f'atom_index_{index}'],
-                                  right_on=['molecule_name', 'atom_index', 'atom', 'x', 'y', 'z'])
+                                  left_on=['molecule_name', f'atom_index_{index}', f'atom_{index}', f'x_{index}', f'y_{index}', f'z_{index}'],
+                                  right_on=['molecule_name', 'atom_index', 'atom', 'x', 'y', 'z']
+                                  )
     
     struc1_train_merge = struc1_train_merge.drop(['n_bonds'], axis=1)
     
@@ -120,18 +120,18 @@ def n_bonds(structures):
         m_compare = np.roll(m_compare, -1, axis=0)
         r_compare = np.roll(r_compare, -1, axis=0)
 
-        mask = np.where(m == m_compare, 1, 0) #Are we still comparing atoms in the same molecule?
+        mask = np.where(m == m_compare, 1, 0) # compare atoms in the same molecule
         dists = np.linalg.norm(p - p_compare, axis=1) * mask
         r_bond = r + r_compare
 
         bond = np.where(np.logical_and(dists > 0.0001, dists < r_bond), 1, 0)
 
         source_row = source_row
-        target_row = source_row + i + 1 #Note: Will be out of bounds of bonds array for some values of i
-        target_row = np.where(np.logical_or(target_row > len(structures), mask==0), len(structures), target_row) #If invalid target, write to dummy row
+        target_row = source_row + i + 1 # Note: Will be out of bounds of bonds array for some values of i
+        target_row = np.where(np.logical_or(target_row > len(structures), mask==0), len(structures), target_row) # If invalid target, write to dummy row
 
         source_atom = i_atom
-        target_atom = i_atom + i + 1 #Note: Will be out of bounds of bonds array for some values of i
+        target_atom = i_atom + i + 1 # Note: Will be out of bounds of bonds array for some values of i
         target_atom = np.where(np.logical_or(target_atom > max_atoms, mask==0), max_atoms, target_atom) #If invalid target, write to dummy col
 
         bonds[(source_row, target_atom)] = bond
@@ -139,10 +139,10 @@ def n_bonds(structures):
         bond_dists[(source_row, target_atom)] = dists
         bond_dists[(target_row, source_atom)] = dists
 
-    bonds = np.delete(bonds, axis=0, obj=-1) #Delete dummy row
-    bonds = np.delete(bonds, axis=1, obj=-1) #Delete dummy col
-    bond_dists = np.delete(bond_dists, axis=0, obj=-1) #Delete dummy row
-    bond_dists = np.delete(bond_dists, axis=1, obj=-1) #Delete dummy col
+    bonds = np.delete(bonds, axis=0, obj=-1) # Delete dummy row
+    bonds = np.delete(bonds, axis=1, obj=-1) # Delete dummy col
+    bond_dists = np.delete(bond_dists, axis=0, obj=-1) # Delete dummy row
+    bond_dists = np.delete(bond_dists, axis=1, obj=-1) # Delete dummy col
 
     print('Counting and condensing bonds')
 
@@ -150,8 +150,8 @@ def n_bonds(structures):
     bond_lengths = [[dist for i,dist in enumerate(row) if i in bonds_numeric[j]] for j,row in enumerate(tqdm(bond_dists))]
     n_bonds = [len(x) for x in bonds_numeric]
 
-    #bond_data = {'bond_' + str(i):col for i, col in enumerate(np.transpose(bonds))}
-    #bond_data.update({'bonds_numeric':bonds_numeric, 'n_bonds':n_bonds})
+    # bond_data = {'bond_' + str(i):col for i, col in enumerate(np.transpose(bonds))}
+    # bond_data.update({'bonds_numeric':bonds_numeric, 'n_bonds':n_bonds})
 
     bond_data = {'bonds':bonds_numeric, 'n_bonds':n_bonds, 'bond_lengths':bond_lengths}
     bond_df = pd.DataFrame(bond_data)
@@ -199,23 +199,26 @@ def distance(df, structures):
     Return: DataFrame with distance added
     """
 
+    print('Calculate the distance between two atoms ...')
     print(10*'*' + '{}'.format(df.shape[0]) + 10*'*')
 
     # Make a copy of  the data for avoiding changing the original data
     df_copy = df.copy()
 
-    # Merge data
+    # Merge data: pair each atom with their own position coordinations
     df_copy = struc_merge(df_copy, structures, 0)
     df_copy = struc_merge(df_copy, structures, 1)
 
     get_ipython().run_line_magic('time', '')
-    # This block for calculating the distance between two spins
+
+    # Calculating the distance between two spins
     df_p_0 = df_copy[['x_0', 'y_0', 'z_0']].values
     df_p_1 = df_copy[['x_1', 'y_1', 'z_1']].values
 
     df_copy['distance'] = np.linalg.norm(df_p_0 - df_p_1, axis=1)
 
     print(10*'*' + '{}'.format(df_copy.shape[0]) + 10*'*')
+    print('Distance done !')
 
     return df_copy
 
@@ -229,17 +232,18 @@ def hybridization(structures):
     Return: structure data with hybridization column added
     """
     
-    print('Calculate hybridization......')
+    print('Calculate hybridization ...')
     print(10*'-' + '{}'.format(structures.shape[0]) + 10*'-')
     
-    # 'C' has different types of hybridizations with different number of bonds.
+    # 'C' has different types of hybridizations with different types of bonds.
     # '4' for four bonds
+    # 3 - sp3, 2 - sp2, 1 - sp
     hybri_dict = {'C': {'4': 3, '3': 2, '2': 2, '1': 0},
                   'N': {'4': 0, '3': 3, '2': 2, '1': 1},
                   'O': {'2': 2, '1': 1},
                   'H': {'1': 0},
                   'F': {'1': 0}}
-                # 3 bonds- sp3, 2 - sp2, 1 - sp
+                
     
     hybri = []
 
@@ -249,6 +253,7 @@ def hybridization(structures):
     structures['hybri'] = hybri
 
     print(10*'-' + '{}'.format(structures.shape[0]) + 10*'-')
+    print('Hybridization done !')
 
     return structures
 
@@ -262,11 +267,11 @@ def pi_bonds(structures):
     Return: structures with pi_bonds column added
     """
 
-    print('Calculate pi bonds......')
+    print('Calculate pi bonds ...')
     print(10*'-' + '{}'.format(structures.shape[0]) + 10*'-')
 
     # The number of atoms connecting to an atom is related with the number of pi bonds.
-    # Eg: In 'C', if there are 4 bonds around, then the number of pi bonds is 0.
+    # Eg: In 'C', if there are 4 atoms around, then the number of pi bonds is 0.
     pi_bond = {'C': {'4': 0, '2': 2, '3': 1},
                'N': {'4': 0, '3': 0, '2': 1, '1': 2},
                'O': {'1': 1, '2': 0},
@@ -281,6 +286,7 @@ def pi_bonds(structures):
     structures['pi_bonds'] = pi_bond_
 
     print(10*'-' + '{}'.format(structures.shape[0]) + 10*'-')
+    print('Pi_bonds done !')
 
     return structures
 
@@ -295,6 +301,7 @@ def electronegativity(atom_name, structures):
     Return: structures with electrineativity column added
     """
 
+    print('Add electronegativity ...')
     print(10*'-' + '{}'.format(structures.shape[0]) + 10*'-')
 
     electronegativity = {'H':2.2, 'C':2.55, 'N':3.04, 'O':3.44, 'F':3.98}
@@ -303,6 +310,7 @@ def electronegativity(atom_name, structures):
     structures['EN'] = en_
 
     print(10*'-' + '{}'.format(structures.shape[0]) + 10*'-')
+    print('Electronegativity done !')
 
     return structures
 
@@ -317,6 +325,7 @@ def radius(atom_name, structures):
     Return: structures with radius column added
     """
 
+    print('Add radius ...')
     print(10*'-' + '{}'.format(structures.shape[0]) + 10*'-')
 
     atomic_radius = {'H':0.38, 'C':0.77, 'N':0.75, 'O':0.73, 'F':0.71} # Without fudge factor
@@ -328,6 +337,7 @@ def radius(atom_name, structures):
     structures['RD'] = rd_
 
     print(10*'-' + '{}'.format(structures.shape[0]) + 10*'-')
+    print('Radius done !')
 
     return structures
 
@@ -338,7 +348,7 @@ def map_atom_info(df_1,df_2, atom_idx):
     :param: df_2 - structure data
     :param: atom_ind - atom index in coupling
 
-    Goal: Merge two dataframe for further using
+    Goal: Merge two dataframe for the function 'create_cloest'.
 
     Return: A new dataframe after merged
     """
@@ -356,7 +366,7 @@ def create_closest(df_train):
     print('Create closest points......')
     print(10*'-' + '{}'.format(df_train.shape[0]) + 10*'-')
 
-    df_temp=df_train.loc[: ,["molecule_name", "atom_index_0", "atom_index_1", "distance", "x_0", "y_0", "z_0", "x_1", "y_1", "z_1"]].copy()
+    df_temp=df_train.loc[:,["molecule_name","atom_index_0","atom_index_1","distance","x_0","y_0","z_0","x_1","y_1","z_1"]].copy()
     df_temp_=df_temp.copy()
     df_temp_= df_temp_.rename(columns={'atom_index_0': 'atom_index_1',
                                        'atom_index_1': 'atom_index_0',
@@ -389,6 +399,7 @@ def create_closest(df_train):
                                             'z_closest': f'z_closest_{atom_idx}'})
     
     print(10*'-' + '{}'.format(df_train.shape[0]) + 10*'-')
+    print('Done !')
 
     return df_train
 
@@ -434,50 +445,54 @@ def add_cos_features(df):
     df["cos_1"] = df["cos_1"].apply(lambda x: np.arccos(x)) * 180 / np.pi
 
     print(10*'-' + '{}'.format(df.shape[0]) + 10*'-')
+    print('Done !')
 
     return df
 
 
 def more_features(df, df_):
+    '''
+    :param df - training data
+    :param df_ - processed structure data
+
+    Goal: Add more features to the training data for next step training model
+
+    Return: training data with new features added
+    '''
     
+    print('Distance: mean, std, min, max ...')
     print(10*'-' + '{}'.format(df.shape[0]) + 10*'-')
     df['distance_mean'] = df.groupby('molecule_name')['distance'].transform('mean')
     df['distance_std'] = df.groupby('molecule_name')['distance'].transform('std')
     df['distance_min'] = df.groupby('molecule_name')['distance'].transform('min')
     df['distance_max'] = df.groupby('molecule_name')['distance'].transform('max')
-    print(10*'-' + '{}'.format(df.shape[0]) + 10*'-')
-
+    print('\n')
+    
+    print('pi_bonds: mean, std, min, max ...')
     df['pi_bonds_mean'] = df_.groupby('molecule_name')['pi_bonds'].transform('mean')
     df['pi_bonds_std'] = df_.groupby('molecule_name')['pi_bonds'].transform('std')
     df['pi_bonds_min'] = df_.groupby('molecule_name')['pi_bonds'].transform('min')
     df['pi_bonds_max'] = df_.groupby('molecule_name')['pi_bonds'].transform('max')
-    print(10*'-' + '{}'.format(df.shape[0]) + 10*'-')
+    print('\n')
 
+    print('hybridization: mean, std, min, max ...')
     df['hybri_mean'] = df_.groupby('molecule_name')['hybri'].transform('mean')
     df['hybri_std'] = df_.groupby('molecule_name')['hybri'].transform('std')
     df['hybri_min'] = df_.groupby('molecule_name')['hybri'].transform('min')
     df['hybri_max'] = df_.groupby('molecule_name')['hybri'].transform('max')
-    print(10*'-' + '{}'.format(df.shape[0]) + 10*'-')
-
+    print('\n')
+    
+    print('Electronegativity and radius: mean ...')
     df['EN_mean'] = df['EN_0'] + df['EN_1'] / 2
     df['RD_mean'] = df['RD_0'] + df['RD_1'] / 2
-    print(10*'-' + '{}'.format(df.shape[0]) + 10*'-')
+    print('\n')
 
-    print('Add mean, std, min and max of bond lengths for atom 0......')
-
-    df['bond_length_0_mean'] = [np.mean(df.loc[i, 'bond_lengths_0']) for i in tqdm(range(len(df.index)))]
-    df['bond_length_0_std'] = [np.std(df.loc[i, 'bond_lengths_0']) for i in tqdm(range(len(df.index)))]
-    df['bond_length_0_min'] = [np.min(df.loc[i, 'bond_lengths_0']) for i in tqdm(range(len(df.index)))]
-    df['bond_length_0_max'] = [np.max(df.loc[i, 'bond_lengths_0']) for i in tqdm(range(len(df.index)))]
-    print(10*'-' + '{}'.format(df.shape[0]) + 10*'-')
-
-    print('Add mean,std, min and max of bond lengths for atom 1......')
-
-    df['bond_length_1_mean'] = [np.mean(df.loc[i, 'bond_lengths_1']) for i in tqdm(range(len(df.index)))]
-    df['bond_length_1_std'] = [np.std(df.loc[i, 'bond_lengths_1']) for i in tqdm(range(len(df.index)))]
-    df['bond_length_1_min'] = [np.min(df.loc[i, 'bond_lengths_1']) for i in tqdm(range(len(df.index)))]
-    df['bond_length_1_max'] = [np.max(df.loc[i, 'bond_lengths_1']) for i in tqdm(range(len(df.index)))]
-    print(10*'-' + '{}'.format(df.shape[0]) + 10*'-')
+    print('Merge mean, std, min and max of bond lengths ...')
+    df = pd.merge(df, df_, how='left', left_on=['molecule_name', 'atom_0'], right_on=['molecule_name', 'atom_index'])
+    df = pd.merge(df, df_, how='left', left_on=['molecule_name', 'atom_1'], right_on=['molecule_name', 'atom_index'])
+    df = df.loc[:, ~df.columns.duplicated()]
+    print(10*'-' + '{}'.format(df.shape[0]) + 10*'-' +'\n')
+    print('Done !')
 
     return df
 
@@ -493,7 +508,7 @@ def group_mean_log_mae(y_true, y_pred, types, floor=1e-9):
 
 
 def train_model_regression(X, X_test, y, params, folds, model_type='lgb', eval_metric='mae', columns=None, plot_feature_importance=False, model=None,
-                           verbose=10000, early_stopping_rounds=200, n_estimators=50000):
+                           verbose=10000, early_stopping_rounds=400, n_estimators=100000):
     """
     A function to train a variety of regression models.
     Returns dictionary with oof predictions, test predictions, scores and, if necessary, feature importances.
@@ -526,9 +541,6 @@ def train_model_regression(X, X_test, y, params, folds, model_type='lgb', eval_m
 
     result_dict = {}
     
-    # out-of-fold predictions on train data
-    oof = np.zeros(len(X))
-    
     # averaged predictions on train data
     prediction = np.zeros(len(X_test))
     
@@ -544,9 +556,8 @@ def train_model_regression(X, X_test, y, params, folds, model_type='lgb', eval_m
             
         if model_type == 'lgb':
             model = lgb.LGBMRegressor(**params, n_estimators = n_estimators, n_jobs = -1)
-            model.fit(X_train, y_train, 
-                    eval_set=[(X_train, y_train), (X_valid, y_valid)], eval_metric=metrics_dict[eval_metric]['lgb_metric_name'],
-                    verbose=verbose, early_stopping_rounds=early_stopping_rounds)
+            model.fit(X_train, y_train, eval_set=[(X_train, y_train), (X_valid, y_valid)], eval_metric=metrics_dict[eval_metric]['lgb_metric_name'],
+                      verbose=verbose, early_stopping_rounds=early_stopping_rounds)
             
             y_pred_valid = model.predict(X_valid)
             y_pred = model.predict(X_test, num_iteration=model.best_iteration_)
@@ -556,13 +567,14 @@ def train_model_regression(X, X_test, y, params, folds, model_type='lgb', eval_m
             valid_data = xgb.DMatrix(data=X_valid, label=y_valid, feature_names=X.columns)
 
             watchlist = [(train_data, 'train'), (valid_data, 'valid_data')]
-            model = xgb.train(dtrain=train_data, num_boost_round=20000, evals=watchlist, early_stopping_rounds=200, verbose_eval=verbose, params=params)
+            model = xgb.train(dtrain=train_data, num_boost_round=50000, evals=watchlist, early_stopping_rounds=400, verbose_eval=verbose, params=params)
             y_pred_valid = model.predict(xgb.DMatrix(X_valid, feature_names=X.columns), ntree_limit=model.best_ntree_limit)
             y_pred = model.predict(xgb.DMatrix(X_test, feature_names=X.columns), ntree_limit=model.best_ntree_limit)
         
         if model_type == 'sklearn':
             model = model
             model.fit(X_train, y_train)
+            
             y_pred_valid = model.predict(X_valid).reshape(-1,)
             score = metrics_dict[eval_metric]['sklearn_scoring_function'](y_valid, y_pred_valid)
             print(f'Fold {fold_n}. {eval_metric}: {score:.4f}.')
@@ -578,7 +590,6 @@ def train_model_regression(X, X_test, y, params, folds, model_type='lgb', eval_m
             y_pred_valid = model.predict(X_valid)
             y_pred = model.predict(X_test)
         
-        oof[valid_index] = y_pred_valid.reshape(-1,)
         if eval_metric != 'group_mae':
             scores.append(metrics_dict[eval_metric]['sklearn_scoring_function'](y_valid, y_pred_valid))
         else:
@@ -598,15 +609,13 @@ def train_model_regression(X, X_test, y, params, folds, model_type='lgb', eval_m
     
     print('CV mean score: {0:.4f}, std: {1:.4f}.'.format(np.mean(scores), np.std(scores)))
     
-    result_dict['oof'] = oof
     result_dict['prediction'] = prediction
     result_dict['scores'] = scores
     
     if model_type == 'lgb':
         if plot_feature_importance:
             feature_importance["importance"] /= folds.n_splits
-            cols = feature_importance[["feature", "importance"]].groupby("feature").mean().sort_values(
-                by="importance", ascending=False)[:50].index
+            cols = feature_importance[["feature", "importance"]].groupby("feature").mean().sort_values(by="importance", ascending=False)[:50].index
 
             best_features = feature_importance.loc[feature_importance.feature.isin(cols)]
 
@@ -620,19 +629,39 @@ def train_model_regression(X, X_test, y, params, folds, model_type='lgb', eval_m
 
 
 def data_generation(df, columns, draft, file_name):
+    '''
+    :param df - dataframe needed to be generated as a csv
+    :param columns - features chosen for the dataframe
+    :param draft - the id of the file
+    :param file_name - type of the data: train / test
+
+    Goal: Generate data csv for further using instead of running through all the code
+
+    Return: None
+    '''
 
     # Select columns for data
     df_plus = df[columns]
+
+    print(f'Generate {file_name}_d{draft} ...')
 
     # Store data for further using
     df_plus.to_csv(r'G:\{}_d{}.csv'.format(file_name, draft), index=False)
 
     print(10*'-' +'Done!' + 10*'-')
+    print('Done !')
 
     return None
-
+    
 
 def structures_prepa(structures_df_full):
+    '''
+    :param structures_df_full - original structure data from Kaggle
+
+    Goal: Add some features to the structure data for further using
+
+    Return: processed structure data
+    '''
 
     # ndarray with names of each atom in the structures csv
     atom = structures_df_full['atom'].values
@@ -650,12 +679,19 @@ def structures_prepa(structures_df_full):
     # Add pi_bonds column
     structures = pi_bonds(structures)
 
-    structures.to_csv(r'G:\structures.csv')
-
     return structures
 
 
 def data_prepa(df1, structures_df_full, structures):
+    '''
+    :param df1 - original training or testing data for adding features
+    :param structures_df_full - original structure data
+    :param structures - processed structure data from the function 'structures_prepa'
+
+    Goal: Add more features to the df1 and merge it with structure data
+
+    Return: processed df1
+    '''
 
     # Add distance feature to the test and trin data
     df = distance(df1, structures_df_full)
@@ -677,70 +713,77 @@ def data_prepa(df1, structures_df_full, structures):
 
     # Missing data in columns with std values
     struc_df['Angle'] = struc_df['Angle'].fillna(180.0)
-    struc_df['distance_std'] = struc_df['distance_std'].fillna(0.0)
 
     return struc_df
 
 
 def model_train_set(train, test, params, model_type, fold_n):
+    '''
+    :param train - training data
+    :param test - test data
+    :param params - parameters for model
+    :param model_type - name of chosen model
+    :param fold_n - number of folds for the training data
+
+    Goal: Train the model with each type and then combine all the predictions from each type to a csv
+
+    Return: a csv with all the predictions
+    '''
 
     # Set parameters for model training
     folds = KFold(n_splits=fold_n, shuffle=False, random_state=0)
 
-    test_submission = pd.DataFrame(columns=['molecule_name', 'atom_index_0', 'atom_index_1', 'type'])
+    test_submission = pd.DataFrame()
     
     # Train the model by each type
     types = test.type.unique()
-
-    results_all = dict()
-    test_copy = test_df_full.copy()
     
     for i in types:
+        # Choose data from each type
         train_plus = train[train['type'] == i]
         test_plus = test[test['type'] == i]
         y = train_plus['scalar_coupling_constant']
+
+        # Drop the catergorical data and target column
         train_plus = train_plus.drop(['type', 'molecule_name', 'scalar_coupling_constant'], axis=1)
         test_plus = test_plus.drop(['type', 'molecule_name'], axis=1)
 
         print('\n' + 15*'-' + 'TYPE {}'.format(i) + 15*'-' + '\n')
-
+        
+        # Check if the type does not need to consider the bond angle
         if i[0] == '1':
             train_plus = train_plus.drop(['Angle'], axis=1)
             results = train_model_regression(train_plus, test_plus, y, params, folds, model_type=model_type)
-            results_all[i] = results
         else:
             results = train_model_regression(train_plus, test_plus, y, params, folds, model_type=model_type)
-            results_all[i] = results
         
-        test_plus_copy = test_copy[test_copy['type'] == i]
-        test_plus_copy['prediction'] = results['prediction']
-        test_submission = pd.concat([test_submission, test_plus_copy], ignore_index=False)
+        # Randomly create a small data for attaching predictions
+        test_plus = test_plus[['EN_0', 'distance']]
+        test_plus['prediciton'] = list(results['prediction'])
 
-    submission['scalar_coupling_constant'] = test_submission['prediction'].values
-    submission.to_csv(r'G:\submission_d2.csv', index=False)
+        # Combine prediction for all the type
+        test_submission = test_submission.append(test_plus, ignore_index=False)
+
+    test_submission = test_submission.sort_index()
     
-    return results_all
+    return test_submission
 
 
 # File paths
-#train_path = r'\\icnas4.cc.ic.ac.uk\fl4718\Desktop\Machine learning\Data\train.csv'
-structures_path = r'\\icnas4.cc.ic.ac.uk\fl4718\Desktop\Machine learning\Data\structures.csv'
-#test_path = r'\\icnas4.cc.ic.ac.uk\fl4718\Desktop\Machine learning\Data\test.csv'
-submission_path = r'\\icnas4.cc.ic.ac.uk\fl4718\Desktop\Machine learning\Data\sample_submission.csv'
-qm9_train_path = r'G:\qm9_train.csv'
-qm9_test_path = r'G:\qm9_test.csv'
+train_path = r'\\icnas2.cc.ic.ac.uk\zw12518\Desktop\champs-scalar-coupling\train.csv'
+structures_path = r'\\icnas2.cc.ic.ac.uk\zw12518\Desktop\champs-scalar-coupling\structures.csv'
+test_path = r'\\icnas2.cc.ic.ac.uk\zw12518\Desktop\champs-scalar-coupling\test.csv'
+submission_path = r'\\icnas2.cc.ic.ac.uk\zw12518\Desktop\champs-scalar-coupling\sample_submission.csv'
 
 # read data from local address
-#train_df_full = pd.read_csv(train_path, index_col=0, dtype={'atom_index_0': np.int8, 'atom_index_1': np.int8})
+train_df_full = pd.read_csv(train_path, index_col=0, dtype={'atom_index_0': np.int8, 'atom_index_1': np.int8})
 structures_df_full = pd.read_csv(structures_path, dtype={'atom_index': np.int8})
-#test_df_full = pd.read_csv(test_path, index_col=0, dtype={'atom_index_0': np.int8, 'atom_index_1': np.int8})
+test_df_full = pd.read_csv(test_path, index_col=0, dtype={'atom_index_0': np.int8, 'atom_index_1': np.int8})
 submission = pd.read_csv(submission_path)
-qm9_train = pd.read_csv(qm9_train_path)
-qm9_test = pd.read_csv(qm9_test_path)
 
 # Structures preparation
-structures = pd.read_csv(r'G:\structures.csv')
-#%%
+structures = structures_prepa(structures_df_full)
+
 # Data preparations for training
 struc_train = data_prepa(train_df_full, structures_df_full, structures)
 struc_test = data_prepa(test_df_full, structures_df_full, structures)
@@ -786,18 +829,19 @@ good_columns_train = [  'molecule_name',
                         'y_1',
                         'z_1'
                      ]
-# Data generation for training data
-data_generation(struc_train, good_columns_train, '2', 'train')
 
-# Data generation for test data
 good_columns_train.remove('scalar_coupling_constant')
 good_columns_test = good_columns_train
+
+# Data generation
+data_generation(struc_train, good_columns_train, '2', 'train')
 data_generation(struc_test, good_columns_test, '2', 'test')
 
 # Import prepared data
-train_d2 = pd.read_csv(r'G:\train_d2.csv')
-test_d2 = pd.read_csv(r'G:\test_d2.csv')
+train_d2 = pd.read_csv(r'G:\\qm9_train_.csv')
+test_d2 = pd.read_csv(r'G:\qm9_test_.csv')
 
+# Set parameters for training model
 params_grid = { 'num_leaves': [50, 60, 70],
                 'min_child_samples': [79, 89, 99],
                 'min_data_in_leaf' : [100, 200, 300],
@@ -815,12 +859,12 @@ params_grid = { 'num_leaves': [50, 60, 70],
                 'colsample_bytree': [1.0]
                 }
 
-params_lgb = {'num_leaves': 10,
-          'min_child_samples': 79,
-          'min_data_in_leaf' : 100,
+params_lgb = {'num_leaves': 70,
+          'min_child_samples': 100,
+          'min_data_in_leaf' : 120,
           'objective': 'regression',
           'max_depth': 9,
-          'learning_rate': 0.2,
+          'learning_rate': 0.15,
           "boosting_type": "gbdt",
           "subsample_freq": 1,
           "subsample": 0.9,
@@ -843,4 +887,9 @@ params_xgb = {'booster': 'gbtree',
               'alpha': 0
               }
 
-model_train_set(train_d2, test_d2, params_lgb, 'lgb', 4)
+# Training step
+sub_draft = model_train_set(train_d2, test_d2, params_lgb, 'lgb', 3)
+
+# Generate final submission csv
+submission['scalar_coupling_constant'] = sub_draft['prediction'].values
+submission.to_csv(r'G:\sub_draft.csv', index=False)
